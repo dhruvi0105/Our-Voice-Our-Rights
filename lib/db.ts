@@ -2,10 +2,15 @@
 import { createClient } from "@supabase/supabase-js";
 import type { DistrictMonthMetrics, MetricCards } from "@/types/mgnrega";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+/**
+ * Lazy-load Supabase client for runtime use.
+ * Prevents build-time initialization on Vercel.
+ */
+export function getSupabase() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  return createClient(supabaseUrl, supabaseAnonKey);
+}
 
 // -----------------------------
 // Upsert a metrics row
@@ -19,6 +24,7 @@ export async function upsertMetricsRow(params: {
   cards: MetricCards;
 }) {
   const { state_name, district_name, fin_year, month, payload, cards } = params;
+  const supabase = getSupabase();
 
   const { data, error } = await supabase
     .from("mgnrega_metrics")
@@ -51,6 +57,8 @@ export async function getMetricsRow(
   fin_year: string,
   month: string
 ) {
+  const supabase = getSupabase();
+
   const { data, error } = await supabase
     .from("mgnrega_metrics")
     .select("*")
@@ -58,7 +66,7 @@ export async function getMetricsRow(
     .eq("district_name", district_name)
     .eq("fin_year", fin_year)
     .eq("month", month)
-    .maybeSingle(); // <-- changed from single()
+    .maybeSingle();
 
   if (error) console.error("Fetch error:", error);
   return data;
@@ -74,6 +82,8 @@ export async function getRecentTrend(
   uptoFinYear: string,
   uptoMonth: string
 ) {
+  const supabase = getSupabase();
+
   const { data, error } = await supabase
     .from("mgnrega_metrics")
     .select(
@@ -92,7 +102,6 @@ export async function getRecentTrend(
     return [];
   }
 
-  // Map to uniform structure with safe defaults
   return (data || []).map((d: any) => ({
     year: d.fin_year,
     month: d.month,
