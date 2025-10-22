@@ -1,4 +1,7 @@
-import { getCache } from "@/lib/cache";
+// lib/mgnrega.ts
+
+// The only critical imports, which are safe due to getSupabase() wrapping:
+import { getCache } from "@/lib/cache"; // Now points to the dummy file
 import { getMetricsRow, getRecentTrend, upsertMetricsRow } from "@/lib/db";
 import type { DistrictMonthMetrics, MetricCards } from "@/types/mgnrega";
 
@@ -19,117 +22,38 @@ function getFinYear(month: number, year: number) {
   return `${year - 1}-${year}`;
 }
 
-export async function getMetricsForDistrictMonth(
-  state: string,
-  district: string,
-  monthNum: number,
-  year: number
-): Promise<DistrictMonthMetrics | null> {
-  const month = monthNumberToName(monthNum);
-  const finYear = getFinYear(monthNum, year);
+// ----------------------------------------------------------------------
+// Safe Dummy Fallback Functions (Since you are only using Supabase)
+// ----------------------------------------------------------------------
 
-  // 1) DB source of truth
-  const dbRow = await getMetricsRow(state, district, finYear, month);
-  if (dbRow) {
-const cards = {
-  persondays: safeNum(dbRow.persondays_of_central_liability_so_far),
-  householdsWorked: safeNum(dbRow.total_households_worked),
-  avgDaysPerHH: safeNum(dbRow.avg_days_of_employment_per_household),
-  wageExpenditure: safeNum(dbRow.wages),
-
-  // Additional important fields
-  totalWorkers: safeNum(dbRow.total_workers),
-  womenPersondays: safeNum(dbRow.women_persondays),
-  avgWageRate: safeNum(dbRow.avg_wage_rate_per_day_per_person),
-  numCompletedWorks: safeNum(dbRow.num_completed_works),
-  numOngoingWorks: safeNum(dbRow.num_ongoing_works),
-  scPersondays: safeNum(dbRow.sc_persondays),
-  stPersondays: safeNum(dbRow.st_persondays),
-  totalExpenditure: safeNum(dbRow.total_expenditure),
-  totalAdminExpenditure: safeNum(dbRow.total_admin_expenditure),
-  totalJobCardsIssued: safeNum(dbRow.total_job_cards_issued),
-  totalActiveJobCards: safeNum(dbRow.total_active_job_cards),
-  totalActiveWorkers: safeNum(dbRow.total_active_workers),
-  totalWorksTakenup: safeNum(dbRow.total_works_takenup),
-  totalHhsCompleted100Days: safeNum(dbRow.total_hhs_completed_100_days),
-  materialAndSkilledWages: safeNum(dbRow.material_and_skilled_wages),
-  differentlyAbledPersonsWorked: safeNum(dbRow.differently_abled_persons_worked),
-
-  // A few bonus insights
-  percentPaymentsWithin15Days: safeNum(dbRow.percent_payments_within_15_days),
-  percentNrmExpenditure: safeNum(dbRow.percent_nrm_expenditure),
-};
-    return {
-      state,
-      district,
-      month: monthNum,
-      year,
-      cards,
-      payload: dbRow.payload,
-      stale: false,
-      updatedAt: dbRow.updated_at,
-      updatedAtHuman: human(dbRow.updated_at),
-    };
+// 3) Fallback to data.gov.in - DUMMY IMPLEMENTATION
+async function fetchFromDataGov(state: string, district: string, month: number, year: number) {
+  // WARNING: This check prevents the original API from running, 
+  // but it's now wrapped in the function, so it's safer.
+  const apiKey = process.env.DATA_GOV_API_KEY; 
+  const resource = process.env.DATA_GOV_RESOURCE_ID; 
+  
+  if (!apiKey || !resource) {
+    // This warning is now harmless, as the function exits safely.
+    console.warn("[mgnrega] External API call disabled due to missing keys.");
+    return null; 
   }
 
-  // 2) Upstash cache
-  const cache = getCache();
-  const cached = await cache.get(cacheKey(state, district, finYear, month));
-  if (cached) return { ...cached, stale: true, updatedAtHuman: human(cached.updatedAt) };
+  // If you *do* want to use the API later, uncomment the original fetch logic here.
+  return null; 
+}
 
-  // 3) Fallback to data.gov.in
-  const fetched = await fetchFromDataGov(state, district, monthNum, year);
-  if (!fetched) return null;
-
-  const mappedCards = mapCards(fetched);
-  const doc: DistrictMonthMetrics = {
-    state,
-    district,
-    year,
-    month: monthNum,
-    cards: mappedCards,
-    payload: fetched,
-    stale: false,
-    updatedAt: new Date().toISOString(),
-    updatedAtHuman: human(new Date().toISOString()),
+function mapCards(record: any): MetricCards {
+  // If the data is not fetched, this returns a zeroed-out object.
+  return {
+    persondays: firstNumber(record, ["persondays_generated"]),
+    householdsWorked: firstNumber(record, ["no_of_households_worked"]),
+    avgDaysPerHH: firstNumber(record, ["avg_days_per_household"]),
+    wageExpenditure: firstNumber(record, ["wage_expenditure"]),
   };
-
-  await Promise.allSettled([
-    upsertMetricsRow({
-      state_name: state,
-      district_name: district,
-      fin_year: finYear,
-      month,
-      payload: fetched,
-      cards: mappedCards,
-    }),
-    cache.set(cacheKey(state, district, finYear, month), doc, TTL_SECONDS),
-  ]);
-
-  return doc;
 }
 
-export async function getTrendForDistrict(state: string, district: string, uptoYear: number, monthsBack: number) {
-  const uptoMonth = new Date().getMonth() + 1;
-  const finYear = getFinYear(uptoMonth, uptoYear);
-  const monthName = monthNumberToName(uptoMonth);
-
-
-  const rows = await getRecentTrend(state, district, monthsBack, finYear, monthName);
-
-
-return (rows || [])
-  .map((r) => ({
-    year: Number(r.year.split("-")[0]),  // <-- use r.year
-    month: monthNameToNumber(r.month),
-    persondays: safeNum(r.persondays),
-    householdsWorked: safeNum(r.householdsWorked),
-    wageExpenditure: safeNum(r.wageExpenditure),
-  }))
-  .filter((r) => r.year && r.month)
-  .sort((a, b) => a.year - b.year || a.month - b.month);
-}
-
+// Utility functions
 function monthNameToNumber(m: string) {
   const date = new Date(`${m} 1, 2000`);
   return date.getMonth() + 1;
@@ -149,42 +73,6 @@ function safeNum(n: any) {
   return Number.isFinite(x) ? x : 0;
 }
 
-async function fetchFromDataGov(state: string, district: string, month: number, year: number) {
-  const apiKey = process.env.DATA_GOV_API_KEY;
-  const resource = process.env.DATA_GOV_RESOURCE_ID;
-  if (!apiKey || !resource) {
-    console.warn("[mgnrega] Missing DATA_GOV_API_KEY or DATA_GOV_RESOURCE_ID");
-    return null;
-  }
-
-  const url = new URL(`https://api.data.gov.in/resource/${resource}`);
-  url.searchParams.set("api-key", apiKey);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("limit", "1");
-  url.searchParams.set("filters[state_name]", state);
-  url.searchParams.set("filters[district_name]", district);
-  url.searchParams.set("filters[month]", String(month));
-  url.searchParams.set("filters[year]", String(year));
-
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  if (!res.ok) {
-    console.error("[mgnrega] data.gov.in error", await res.text());
-    return null;
-  }
-
-  const data = await res.json();
-  return Array.isArray(data?.records) && data.records.length ? data.records[0] : null;
-}
-
-function mapCards(record: any): MetricCards {
-  return {
-    persondays: firstNumber(record, ["persondays_generated", "persondays", "no_of_persondays_generated"]),
-    householdsWorked: firstNumber(record, ["no_of_households_worked", "households_worked", "households"]),
-    avgDaysPerHH: firstNumber(record, ["avg_days_per_household", "average_days_per_household", "avg_days"]),
-    wageExpenditure: firstNumber(record, ["wage_expenditure", "total_wage_expenditure", "wage_exp"]),
-  };
-}
-
 function firstNumber(src: any, keys: string[]) {
   for (const k of keys) {
     if (k in (src || {})) {
@@ -193,4 +81,98 @@ function firstNumber(src: any, keys: string[]) {
     }
   }
   return 0;
+}
+
+
+// ----------------------------------------------------------------------
+// EXPORTED CORE LOGIC
+// ----------------------------------------------------------------------
+
+export async function getMetricsForDistrictMonth(
+  state: string,
+  district: string,
+  monthNum: number,
+  year: number
+): Promise<DistrictMonthMetrics | null> {
+  const month = monthNumberToName(monthNum);
+  const finYear = getFinYear(monthNum, year);
+
+  // 1) DB source of truth (Supabase)
+  const dbRow = await getMetricsRow(state, district, finYear, month);
+  if (dbRow) {
+    const cards: MetricCards = {
+      persondays: safeNum(dbRow.persondays_of_central_liability_so_far),
+      householdsWorked: safeNum(dbRow.total_households_worked),
+      avgDaysPerHH: safeNum(dbRow.avg_days_of_employment_per_household),
+      wageExpenditure: safeNum(dbRow.wages),
+      totalWorkers: safeNum(dbRow.total_workers),
+      womenPersondays: safeNum(dbRow.women_persondays),
+      avgWageRate: safeNum(dbRow.avg_wage_rate_per_day_per_person),
+      numCompletedWorks: safeNum(dbRow.num_completed_works),
+      numOngoingWorks: safeNum(dbRow.num_ongoing_works),
+      scPersondays: safeNum(dbRow.sc_persondays),
+      stPersondays: safeNum(dbRow.st_persondays),
+      totalExpenditure: safeNum(dbRow.total_expenditure),
+      totalAdminExpenditure: safeNum(dbRow.total_admin_expenditure),
+      totalJobCardsIssued: safeNum(dbRow.total_job_cards_issued),
+      totalActiveJobCards: safeNum(dbRow.total_active_job_cards),
+      totalActiveWorkers: safeNum(dbRow.total_active_workers),
+      totalWorksTakenup: safeNum(dbRow.total_works_takenup),
+      totalHhsCompleted100Days: safeNum(dbRow.total_hhs_completed_100_days),
+      materialAndSkilledWages: safeNum(dbRow.material_and_skilled_wages),
+      differentlyAbledPersonsWorked: safeNum(dbRow.differently_abled_persons_worked),
+      percentPaymentsWithin15Days: safeNum(dbRow.percent_payments_within_15_days),
+      percentNrmExpenditure: safeNum(dbRow.percent_nrm_expenditure),
+    };
+    return {
+      state, district, month: monthNum, year, cards, payload: dbRow.payload,
+      stale: false, updatedAt: dbRow.updated_at, updatedAtHuman: human(dbRow.updated_at),
+    };
+  }
+
+  // 2) Cache (Uses Dummy Cache, will return null)
+  const cache = getCache();
+  const cached = await cache.get(cacheKey(state, district, finYear, month));
+  if (cached) return { ...cached, stale: true, updatedAtHuman: human(cached.updatedAt) };
+
+  // 3) Fallback to external API (Uses Dummy function, will return null)
+  const fetched = await fetchFromDataGov(state, district, monthNum, year);
+  if (!fetched) return null; // Exit here as external data is unavailable
+
+  // If execution reaches here (e.g., if you enable a real API later)
+  const mappedCards = mapCards(fetched);
+  const doc: DistrictMonthMetrics = {
+    state, district, year, month: monthNum, cards: mappedCards,
+    payload: fetched, stale: false, updatedAt: new Date().toISOString(),
+    updatedAtHuman: human(new Date().toISOString()),
+  };
+
+  await Promise.allSettled([
+    upsertMetricsRow({
+      state_name: state, district_name: district, fin_year: finYear, month,
+      payload: fetched, cards: mappedCards,
+    }),
+    cache.set(cacheKey(state, district, finYear, month), doc, TTL_SECONDS),
+  ]);
+
+  return doc;
+}
+
+export async function getTrendForDistrict(state: string, district: string, uptoYear: number, monthsBack: number) {
+  const uptoMonth = new Date().getMonth() + 1;
+  const finYear = getFinYear(uptoMonth, uptoYear);
+  const monthName = monthNumberToName(uptoMonth);
+
+  const rows = await getRecentTrend(state, district, monthsBack, finYear, monthName);
+
+  return (rows || [])
+    .map((r) => ({
+      year: Number(r.year.split("-")[0]),
+      month: monthNameToNumber(r.month),
+      persondays: safeNum(r.persondays),
+      householdsWorked: safeNum(r.householdsWorked),
+      wageExpenditure: safeNum(r.wageExpenditure),
+    }))
+    .filter((r) => r.year && r.month)
+    .sort((a, b) => a.year - b.year || a.month - b.month);
 }
