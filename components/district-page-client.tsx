@@ -84,8 +84,6 @@ export function DistrictPageClient({
         { ref: homeButtonRef, text: "Demo Step 1: Click the Home Button to easily navigate back to the state selection page." },
         { ref: trendChartRef, text: "Demo Step 2: The 12-Month Trend chart provides a historical context for the district's performance across key metrics." },
         { ref: comparisonRef, text: "Demo Step 3: Use the Comparison panel to select up to two other districts and benchmark performance." },
-        { ref: persondaysMetricRef, text: "Demo Step 4: This is the 'Persondays' card, the most fundamental metric for employment generated." },
-        { ref: wageExpenditureMetricRef, text: "Demo Step 5: This 'Wage Expenditure' card shows the total cash outflow for worker wages this period." },
     ];
 
     const isActive = (ref: React.RefObject<any>) => steps[step]?.ref === ref;
@@ -254,7 +252,12 @@ const handleYearChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
                 >
                     <CardContent className="p-4">
                         <h2 className="text-lg font-semibold text-pretty mb-2">Compare / तुलना</h2>
-                        <Comparison stateName={stateName} districtName={districtName} /> 
+                    <Comparison
+                    stateName={stateName}
+                    districtName={districtName}
+                    month={month}
+                    year={year}
+                    />
                     </CardContent>
                 </Card>
             </section>
